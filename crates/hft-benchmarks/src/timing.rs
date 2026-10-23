@@ -7,6 +7,10 @@ use std::time::Instant;
 /// The `lfence` guarantees all prior instructions have committed before
 /// the TSC is sampled; `rdtsc` itself is not a serializing instruction
 /// and can otherwise be reordered with preceding memory operations.
+///
+/// On Spectre-hardened CPUs this costs ~30–50 cycles instead of the
+/// theoretical 1, which dominates the measurement floor. See
+/// `BENCHMARKS.md`.
 #[inline(always)]
 pub fn rdtsc() -> u64 {
     unsafe {
@@ -25,7 +29,6 @@ pub fn timestamp_now() -> Timestamp {
 /// wall-clock sleep. Called once per benchmark process; the result is
 /// cached by the caller, not by this function.
 pub fn calibrate_tsc_frequency() -> u64 {
-    // Warm up the instruction cache and the TSC itself.
     let _ = rdtsc();
 
     let wall_start = Instant::now();
@@ -90,49 +93,83 @@ mod tests {
         let freq = calibrate_tsc_frequency();
         assert!(freq > 0);
 
-        let n: usize = 100_000;
-
-        let unpinned = measure_overhead(n);
-        let s_un = Stats::from_sorted(&unpinned);
-
         let core = 2_usize.min(crate::affinity::available_cores().saturating_sub(1));
         crate::affinity::pin_to_core(core).expect("pin_to_core failed");
 
-        let pinned = measure_overhead(n);
-        let s_pin = Stats::from_sorted(&pinned);
+        let n: usize = 100_000;
 
-        println!("timestamp_now() overhead (TSC {} MHz):", freq / 1_000_000);
+        // Warm up both paths so the first sample is not dominated by
+        // cold-cache effects.
+        let _ = measure_empty_loop(1_000);
+        let _ = measure_full_loop(1_000);
+
+        let baseline = Stats::from_sorted(&measure_empty_loop(n));
+        let full = Stats::from_sorted(&measure_full_loop(n));
+
+        // Baseline and full are distributional summaries computed over
+        // the same sample size in the same noise environment, so it is
+        // defensible to subtract their percentiles. max is NOT
+        // subtracted: max(baseline) and max(full) are individual
+        // samples from different iterations and their difference is
+        // meaningless. See BENCHMARKS.md.
+        let b_p50 = cycles_to_ns(baseline.p50, freq);
+        let b_p99 = cycles_to_ns(baseline.p99, freq);
+        let b_p999 = cycles_to_ns(baseline.p999, freq);
+        let b_max = cycles_to_ns(baseline.max, freq);
+
+        let f_p50 = cycles_to_ns(full.p50, freq);
+        let f_p99 = cycles_to_ns(full.p99, freq);
+        let f_p999 = cycles_to_ns(full.p999, freq);
+        let f_max = cycles_to_ns(full.max, freq);
+
+        let true_p50 = f_p50.saturating_sub(b_p50);
+        let true_p99 = f_p99.saturating_sub(b_p99);
+        let true_p999 = f_p999.saturating_sub(b_p999);
+
         println!(
-            "  unpinned:     p50={:>5}ns  p99={:>5}ns  max={:>10}ns",
-            cycles_to_ns(s_un.p50, freq),
-            cycles_to_ns(s_un.p99, freq),
-            cycles_to_ns(s_un.max, freq),
-        );
-        println!(
-            "  pinned c{:>2}:  p50={:>5}ns  p99={:>5}ns  max={:>10}ns",
+            "timestamp_now() cost (core {}, TSC {} MHz):",
             core,
-            cycles_to_ns(s_pin.p50, freq),
-            cycles_to_ns(s_pin.p99, freq),
-            cycles_to_ns(s_pin.max, freq),
+            freq / 1_000_000
+        );
+        println!(
+            "  baseline (rdtsc; rdtsc):   p50={:>4}ns  p99={:>4}ns  p99.9={:>4}ns  max={:>8}ns",
+            b_p50, b_p99, b_p999, b_max
+        );
+        println!(
+            "  full (rdtsc; now; rdtsc):  p50={:>4}ns  p99={:>4}ns  p99.9={:>4}ns  max={:>8}ns",
+            f_p50, f_p99, f_p999, f_max
+        );
+        println!(
+            "  TRUE cost (difference):    p50={:>4}ns  p99={:>4}ns  p99.9={:>4}ns",
+            true_p50, true_p99, true_p999
         );
 
-        assert!(
-            cycles_to_ns(s_pin.p99, freq) < 1000,
-            "p99 too slow: {} ns",
-            cycles_to_ns(s_pin.p99, freq)
-        );
+        assert!(true_p99 < 100, "true p99 too slow: {} ns", true_p99);
     }
 
-    /// Time `n` iterations of `timestamp_now()` and return the sorted
-    /// per-iteration cycle counts.
+    /// Two `rdtsc` reads back to back, subtract, push. This is the
+    /// floor: the cost of the measurement loop itself with nothing
+    /// being measured between the two reads.
+    fn measure_empty_loop(n: usize) -> Vec<u64> {
+        let mut samples = Vec::with_capacity(n);
+        for _ in 0..n {
+            let start = rdtsc();
+            let end = rdtsc();
+            samples.push(end.saturating_sub(start));
+        }
+        samples.sort_unstable();
+        samples
+    }
+
+    /// Two `rdtsc` reads with `timestamp_now()` in between. Difference
+    /// against `measure_empty_loop` isolates the cost of
+    /// `timestamp_now()` itself.
     ///
-    /// Each iteration reads `rdtsc` twice more than strictly necessary —
-    /// once before the measured call and once after — so the per-sample
-    /// value includes the measurement overhead, not just the cost of
-    /// `timestamp_now()`. That is intentional: the overhead is a
-    /// constant that will be subtracted against an empty-loop baseline
-    /// in a later pass.
-    fn measure_overhead(n: usize) -> Vec<u64> {
+    /// `black_box` prevents the compiler from deleting the inner call
+    /// as dead code (its return value is immediately discarded). The
+    /// empty loop needs no such protection because both `rdtsc` results
+    /// are used directly.
+    fn measure_full_loop(n: usize) -> Vec<u64> {
         let mut samples = Vec::with_capacity(n);
         for _ in 0..n {
             let start = rdtsc();
