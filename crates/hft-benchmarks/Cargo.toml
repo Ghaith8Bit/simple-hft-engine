@@ -1,0 +1,8 @@
+[package]
+name = "hft-benchmarks"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hft-core = { path = "../hft-core" }
+libc = "0.2"
