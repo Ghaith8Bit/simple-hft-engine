@@ -230,6 +230,7 @@ name = "hft-orderbook"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "hft-benchmarks",
  "hft-core",
 ]
 

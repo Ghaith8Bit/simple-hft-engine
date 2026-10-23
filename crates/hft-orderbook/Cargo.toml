@@ -8,7 +8,12 @@ hft-core = { path = "../hft-core" }
 
 [dev-dependencies]
 criterion = "0.5"
+hft-benchmarks = { path = "../hft-benchmarks" }
 
 [[bench]]
 name = "book"
+harness = false
+
+[[bench]]
+name = "book_rdtsc"
 harness = false

@@ -14,12 +14,11 @@ For interview narratives that reference these measurements, see
 Two components exist:
 
 - **`hft-benchmarks`** — RDTSC-based timing harness. Measures
-  `timestamp_now()`, the primitive every future benchmark will build
-  on.
+  `timestamp_now()`, the primitive every future benchmark builds on.
 - **`hft-orderbook`** — fixed-depth, price-aggregated limit order
-  book. Currently benchmarked only through criterion, which gives
-  regression baselines, not honest nanosecond figures. The RDTSC
-  order-book benchmark is on the Roadmap.
+  book. Measured by two tools: RDTSC for `best_bid_read` (honest
+  per-op cost), criterion for mutations (upper bounds, regression
+  baselines). See [Why two tools](#why-two-tools-for-the-order-book).
 
 Everything else (feed handler, strategy, risk, gateway) does not yet
 exist.
@@ -91,20 +90,35 @@ Debug builds inflate numbers 10–50×; parallel tests steal CPU from
 the measurement thread; without `--nocapture` the test harness
 swallows the output.
 
-### Order book (`hft-orderbook`, criterion)
+### Order book (`hft-orderbook`)
 
-Criterion benchmarks with `iter()` for read-only and `iter_batched()`
-for mutations. Reproduce with:
+Two benchmarks, two tools:
+
+- `benches/book.rs` — **criterion**. `iter()` for `best_bid_read`,
+  `iter_batched()` for mutations. Statistical analysis, HTML
+  reports, regression detection. ~55–60 ns of `iter_batched`
+  overhead per iteration.
+- `benches/book_rdtsc.rs` — **RDTSC**. Baseline-subtracted per-op
+  timing for `best_bid_read` only. Honest number, no scaffolding.
+
+Reproduce with:
 
 ```bash
-cargo bench -p hft-orderbook --bench book
+cargo bench -p hft-orderbook --bench book        # criterion (upper bounds)
+cargo bench -p hft-orderbook --bench book_rdtsc  # RDTSC (honest read cost)
 ```
 
-**Criterion cannot measure these operations honestly.** `iter_batched`
-runs a setup closure, times the routine, and drops the value inside
-the timer — the scaffolding costs 55–60 ns per iteration, more than
-the operation. The numbers below are **regression baselines**, not
-performance claims. An RDTSC order-book benchmark is on the Roadmap.
+**Criterion cannot measure mutations honestly.** `iter_batched` runs
+a setup closure, times the routine, and drops the value inside the
+timer — the scaffolding costs 55–60 ns per iteration, more than the
+operation. The numbers are **regression baselines**, not performance
+claims.
+
+**RDTSC cannot measure mutations honestly either.** Batch-subtraction
+of mutations was attempted and abandoned — the compiler consistently
+found a difference between baseline-loop and full-loop setup costs
+that dominated the operation. See
+[Why two tools](#why-two-tools-for-the-order-book).
 
 ---
 
@@ -143,32 +157,48 @@ Pinned to core 2 via `sched_setaffinity`. 100,000 iterations per row.
 
 ---
 
-## Results: order book operations (criterion)
+## Results: order book operations
 
-Populated book: 10 bid levels, step-2 price spacing. `OrderBook` is
-656 bytes; `PriceLevel` is 16 bytes.
+Two tools, two capabilities. RDTSC measures `best_bid_read` honestly.
+Criterion measures mutations with ~55–60 ns of overhead — upper
+bounds, useful for regression detection.
 
-| Operation | Time (median) | Notes |
-|---|---|---|
-| `best_bid_read` | **1.93 ns** | Via `iter()`, no batching — this IS the real cost (~5 TSC cycles, one 128-bit load) |
-| `add_same_price` | 78.7 ns | Fast path: aggregate, no shift |
-| `add_new_price_best` | 75.8 ns | Worst case: insert at idx 0, 10 levels shift |
-| `add_new_price_mid` | 74.2 ns | Typical: insert at idx 3, 7 levels shift |
-| `add_new_price_worst` | 69.0 ns | Tail insert, no shift |
-| `cancel_partial` | 63.0 ns | Reduce qty, no shift |
-| `cancel_full` | 70.7 ns | Remove level, 9 levels shift left |
+| Operation | Time | Source | Trust |
+|---|---|---|---|
+| `best_bid_read` | **3 ns** (p50 = p99 = 3 ns, p99.9 = 8 ns) | RDTSC, baseline-subtracted | **Honest** |
+| `add_same_price` | 78.7 ns | criterion `iter_batched` | Upper bound |
+| `add_new_price_best` | 75.8 ns | criterion `iter_batched` | Upper bound |
+| `add_new_price_mid` | 74.2 ns | criterion `iter_batched` | Upper bound |
+| `add_new_price_worst` | 69.0 ns | criterion `iter_batched` | Upper bound |
+| `cancel_partial` | 63.0 ns | criterion `iter_batched` | Upper bound |
+| `cancel_full` | 70.7 ns | criterion `iter_batched` | Upper bound |
 
 **Field-removal optimization measured.** Removing the semantically
 broken `order_count: u32` from `PriceLevel` shrank it from 24 to 16
 bytes and `OrderBook` from 976 to 656 bytes. Measured effects:
 
-- `best_bid_read` 2.60 → 1.93 ns (−26%) — single 128-bit load of
-  `bids[0]` instead of two loads.
-- All mutations 95–110 → 63–79 ns (−25 to −35%) — smaller struct
-  means less stack memory shuttled by `iter_batched`'s setup/drop.
-  The operation itself did not get 33% faster; the scaffolding did.
+- `best_bid_read` 2.60 → 3 ns via RDTSC (single 128-bit load vs. two
+  loads). The 1–3 ns range across runs reflects firmware-controlled
+  frequency drift; the p99.9 tail (8 ns) is the load occasionally
+  missing L1, which the previous 1/1/1 run did not expose.
+- All mutations 95–110 → 63–79 ns criterion (−25 to −35%) — smaller
+  struct means less stack memory shuttled by `iter_batched`'s
+  setup/drop. The operation itself did not get 33% faster; the
+  scaffolding did.
 
-**The one signal that survives the overhead (within a single run):**
+**Why 3/3/8 is the honest number, not 1/1/1.** `rdtsc` on x86 can be
+reordered with ordinary loads: the `lfence` before `rdtsc` prevents
+prior loads from moving, but does not prevent a subsequent load from
+starting before the counter reads. When the load is very cheap and
+the pipeline is unpressured, it can overlap with the second `rdtsc`
+and appear to cost ~0 cycles. The 1/1/1 run was almost certainly
+pipeline overlap, not a sub-cycle load. The 3/3/8 run had slightly
+more pressure and could not fully overlap — it is the more honest
+measurement, with a real tail instead of a suspiciously-perfect
+flat distribution.
+
+**Within-run deltas on criterion** reveal the shift cost, though
+weakly:
 
 - `cancel_partial` 63.0 vs `cancel_full` 70.7 → 7.7 ns for 9 shifted
   levels → **~0.85 ns per shifted `PriceLevel`**
@@ -179,14 +209,50 @@ At `DEPTH = 20`, the worst-case shift (20 levels) costs ~14–17 ns on
 top of the base operation. **This is the O(depth) insert cost a
 fixed-depth array pays for O(1) reads.** Depth is a real tuning knob.
 
-**Cross-benchmark comparisons at ~5–10% level are confounded** by
-firmware-controlled CPU frequency drift between benchmark runs within
-the same criterion process. Only within-run deltas are meaningful.
+**Cross-benchmark comparisons at the ~5–10% level are confounded**
+by firmware-controlled CPU frequency drift between benchmark runs
+within the same criterion process. Only within-run deltas are
+meaningful.
 
-**All mutation numbers are upper bounds.** The operations themselves
-are almost certainly in the 5–20 ns range; criterion cannot see below
-its own scaffolding. An RDTSC order-book benchmark is the next step
-(Roadmap).
+---
+
+## Why two tools for the order book
+
+`best_bid_read` is a load of `bids[0]` — 16 bytes, one `movdqa` on
+x86_64. It has no side effects, no dependencies on prior state, and
+the compiler cannot elide it because we `black_box` the result.
+RDTSC measures it at 3 ns (p50 = p99), 8 ns at p99.9,
+baseline-subtracted. That is honest.
+
+Mutations are different. Each is a read-modify-write on a 656-byte
+struct. Two measurement strategies were tried:
+
+**Strategy 1 — criterion `iter_batched`.** Setup closure builds a
+fresh `OrderBook` per iteration, drops it inside the timer. Overhead
+~55–60 ns per iteration. The mutation definitely runs (criterion is
+designed to guarantee this), but the number includes ~60 ns of
+scaffolding. Usable as an upper bound and for regression detection.
+
+**Strategy 2 — RDTSC batch-subtraction.** Baseline loop: `rdtsc;
+setup(); rdtsc` × N. Full loop: `rdtsc; setup(); op(); rdtsc` × N.
+Subtract totals, divide by N. Same methodology that worked for
+`timestamp_now()`. It failed here:
+
+- `cancel_full` (9 shifted levels) reported **faster** than
+  `cancel_partial` (0 shifts) — physically impossible.
+- `add_same_price` (fast path, no shift) reported **slower** than
+  `add_new_price_worst` (no shift) — reversed.
+- Two `black_box` defenses (seed from `rdtsc()`, fence between setup
+  and window) were not enough. The compiler found a difference
+  between the baseline-loop and full-loop setup costs — almost
+  certainly cache-effect asymmetry — that dominated the operation.
+
+The decision: **criterion for mutations, RDTSC for reads.** Making
+the RDTSC defense strong enough would have required restructuring
+the benchmark into something that no longer resembled the operation.
+The failure and the decision are documented rather than hidden,
+because a wrong number that looks real is worse than a right number
+that is honestly labeled as an upper bound.
 
 ---
 
@@ -206,8 +272,9 @@ its own scaffolding. An RDTSC order-book benchmark is the next step
 - **Huge pages** — no `mmap(MAP_HUGETLB)`. Relevant once the order
   book exceeds L1 cache (currently 656 B, well within L1).
 - **NUMA** — single-socket laptop, not applicable.
-- **Order book honest latency** — criterion cannot measure below its
-  own overhead. RDTSC order-book bench is a Roadmap item.
+- **Mutation absolute latency** — criterion gives upper bounds only;
+  RDTSC mutation batch was abandoned (see
+  [Why two tools](#why-two-tools-for-the-order-book)).
 
 Each item is a real cost a production HFT system would pay. Making
 the delta explicit is the point of this section.
@@ -226,9 +293,10 @@ the delta explicit is the point of this section.
       binary search, aggregated by price
 - [x] Field-removal optimization measured: `order_count` removed,
       24 → 16 byte `PriceLevel`
-- [ ] **RDTSC order-book benchmark** — batch mode (per-op cost) and
-      latency mode (p50/p99/p99.9) for each operation. The honest
-      numbers.
+- [x] `best_bid_read` RDTSC-measured at 3 ns (p50 = p99), 8 ns
+      (p99.9) (honest)
+- [x] RDTSC batch measurement of mutations attempted and abandoned;
+      criterion upper bounds documented as the alternative
 - [ ] `isolcpus=2,3 nohz_full=2,3 rcu_nocbs=2,3` — deferred (GRUB
       edit risk); document only
 - [ ] `SCHED_FIFO` on measurement thread
@@ -251,6 +319,15 @@ the delta explicit is the point of this section.
 - **2026-10-24** — Order book implemented. Removed broken
   `order_count` field (counted API calls, not orders); `PriceLevel`
   shrunk 24 → 16 bytes, `OrderBook` 976 → 656 bytes. Measured
-  improvement: `best_bid_read` 2.60 → 1.93 ns (−26%), mutations
-  95–110 → 63–79 ns (−25 to −35%) via criterion `iter_batched`.
-  Per-shift cost ~0.68–0.85 ns; DEPTH=20 worst-case shift ~14–17 ns.
+  improvement: `best_bid_read` 2.60 → 1.93 ns criterion, mutations
+  95–110 → 63–79 ns via criterion `iter_batched`. Per-shift cost
+  ~0.68–0.85 ns; DEPTH=20 worst-case shift ~14–17 ns.
+- **2026-10-24** — `best_bid_read` RDTSC benchmark added: 3 ns at
+  p50 = p99, 8 ns at p99.9. Range across runs 1–3 ns (firmware
+  frequency drift); p99.9 tail is real, the previous 1/1/1 run did
+  not expose it. RDTSC batch measurement of mutations attempted
+  and abandoned (compiler found setup-cost asymmetry between
+  baseline and full loops that dominated the op; `cancel_full`
+  reported faster than `cancel_partial` — impossible). Criterion
+  remains the mutation baseline. Two tools, two capabilities,
+  documented.

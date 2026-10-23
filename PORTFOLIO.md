@@ -18,16 +18,17 @@ are designed to be read in that order.
 > harness reports the true cost of `timestamp_now()` as 28 ns at
 > p50, p99, and p99.9 — the tightness proves the primitive is
 > deterministic, and the subtraction cancels OS noise that the raw
-> numbers would attribute to the code. The order book is a 656-byte
-> struct with `best_bid` at 1.93 ns and a per-shift cost of ~0.7 ns,
-> measured through a struct-size reduction. Every number in the
-> write-up comes with a methodology note, an explicit list of
-> exclusions, and a roadmap of what I would do differently for
-> production.
+> numbers would attribute to the code. `best_bid_read` measures 3 ns
+> via RDTSC, with a p99.9 tail of 8 ns. For mutations I fell back to
+> criterion because RDTSC could not defeat the optimizer — and I
+> documented why, because a number that looks real but is not is
+> worse than an honest upper bound. Every claim comes with a
+> methodology note, an explicit list of exclusions, and a roadmap of
+> what I would do differently for production.
 
 See [BENCHMARKS.md § Results](BENCHMARKS.md#results-timestamp_now-cost)
 for the timestamp numbers and
-[BENCHMARKS.md § order book results](BENCHMARKS.md#results-order-book-operations-criterion)
+[BENCHMARKS.md § order book results](BENCHMARKS.md#results-order-book-operations)
 for the book numbers.
 
 ---
@@ -166,7 +167,7 @@ cheap. Measured per-shift cost: 0.68–0.85 ns. Depth 20 → worst-case
 insert shift ~14–17 ns. Depth is the tuning knob, and the
 measurement supports the number.
 
-See [BENCHMARKS.md § order book results](BENCHMARKS.md#results-order-book-operations-criterion)
+See [BENCHMARKS.md § order book results](BENCHMARKS.md#results-order-book-operations)
 for the shift measurements.
 
 **Sorted array vs dense-array price-indexed.** A dense array with a
@@ -193,18 +194,21 @@ counted as 1, not 100. It counted API calls, not orders.
 Removing the field:
 
 - Shrank `PriceLevel` from 24 to 16 bytes (`OrderBook` 976 → 656).
-- `best_bid_read`: 2.60 → 1.93 ns (−26%, single 128-bit load vs. two
-  loads).
-- Mutations via criterion: 95–110 → 63–79 ns (−25 to −35%), because
+- `best_bid_read`: 2.60 → 3 ns via RDTSC (single 128-bit load vs.
+  two loads; earlier runs measured 1 ns, the p99.9 tail of 8 ns here
+  is the more honest figure).
+- Mutations via criterion: 95–110 → 63–79 ns, because
   `iter_batched` shuttles 33% less stack memory per iteration.
 
 **The operation itself did not get 33% faster.** The scaffolding did.
 That distinction is the point — a reviewer can tell the difference
 between "I optimized the code" and "I made the *thing around the
-code* smaller and criterion noticed."
+code* smaller and criterion noticed." The RDTSC number (3 ns) is the
+one to quote for the read path; the criterion improvement is
+scaffolding-driven and is documented as such.
 
 Full numbers in
-[BENCHMARKS.md § order book results](BENCHMARKS.md#results-order-book-operations-criterion).
+[BENCHMARKS.md § order book results](BENCHMARKS.md#results-order-book-operations).
 
 ---
 
@@ -223,8 +227,73 @@ the cost.
 
 The mistake reviewers see in other portfolios is using criterion for
 both and reporting ~100 ns for a ~10 ns operation. **Two tools, two
-jobs.** The order-book RDTSC benchmark is the next step, and it will
-report the honest figures the criterion numbers only bound.
+jobs.** `best_bid_read` at 3 ns comes from RDTSC; mutations are
+criterion upper bounds.
+
+---
+
+## When measurement infrastructure fails — and what to do about it
+
+I tried to measure order-book mutations with RDTSC, using the same
+batch-subtraction methodology that worked for `timestamp_now()`. The
+compiler defeated the measurement. `cancel_full` (9 shifted levels)
+reported *faster* than `cancel_partial` (0 shifts), which is
+physically impossible. `add_same_price` (fast path, no shift)
+reported *slower* than `add_new_price_worst` (no shift). The
+optimizer was finding a difference between the baseline-loop and
+full-loop setup costs that dominated the operation — cache-effect
+asymmetry, most likely.
+
+Two `black_box` calls (one on a seed from `rdtsc()`, one between
+setup and the timing window) were not enough to prevent it. Making
+the defense stronger would have meant restructuring the benchmark
+into something that no longer resembled the operation being
+measured.
+
+**The decision: fall back to criterion for mutations, keep RDTSC for
+reads.** Criterion's `iter_batched` accepts 55–60 ns of overhead in
+exchange for the guarantee that the operation actually runs.
+`best_bid_read` at 3 ns comes from RDTSC directly — reads are not
+subject to the mutation-elision problem.
+
+**Why this matters more than the numbers:** an engineer who reports a
+nonsense result because the harness said so is worse than one who
+recognizes the harness is broken and uses the right tool for the job.
+`BENCHMARKS.md` explicitly documents which numbers are honest and
+which are upper bounds. A reviewer who reads that distinction should
+trust the honest numbers *more*, not less — because it means the
+author was watching.
+
+See [BENCHMARKS.md § Why two tools for the order book](BENCHMARKS.md#why-two-tools-for-the-order-book).
+
+---
+
+## When the number looks too good — pipeline overlap
+
+The `best_bid_read` RDTSC benchmark has produced two very different
+results across runs: `1 / 1 / 1` (p50 / p99 / p99.9 ns) once, and
+`3 / 3 / 8` another time. The temptation is to publish the 1/1/1 —
+it is the better number. **That would be wrong.**
+
+`rdtsc` on x86 is not a serializing instruction. The `lfence`
+before it guarantees prior loads have completed, but a *subsequent*
+load can start before the counter reads. If the load is very cheap
+and the pipeline is unpressured, the load and the second `rdtsc`
+overlap in the out-of-order window, and the measured time can drop
+below the load's actual latency. The 1/1/1 run was almost certainly
+this effect: a sub-cycle result that cannot be real.
+
+The 3/3/8 run had slightly more pipeline pressure and could not fully
+overlap. It has a real tail (p99.9 = 8 ns), which is what an honest
+measurement of an 8-cycle operation should look like — most samples
+flat, occasional stalls on L1/L2 boundaries or branch mispredicts on
+`bid_len == 0`.
+
+**The lesson: the tightest distribution is not the truest one.**
+When a microbenchmark reports a number that a physicist would reject
+(a load cannot be faster than the load's own latency), suspect the
+harness before you celebrate. The 3 ns figure is the one that
+survives that check.
 
 ---
 
