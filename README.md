@@ -1,3 +1,5 @@
+[![ci](https://github.com/Ghaith8Bit/simple-hft-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Ghaith8Bit/simple-hft-engine/actions/workflows/ci.yml)
+
 # simple-hft-engine
 
 A limit order book and market data feed handler in Rust, built to be
