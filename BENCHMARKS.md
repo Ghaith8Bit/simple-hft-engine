@@ -1,8 +1,7 @@
 # Benchmarks
 
-Numbers with methodology. Every number says what it measures and what
-it excludes. For the reasoning behind the design choices, see
-[`PORTFOLIO.md`](PORTFOLIO.md).
+Numbers with methodology. Every figure says what it measures and what
+it excludes. For the design reasoning, see [`PORTFOLIO.md`](PORTFOLIO.md).
 
 ---
 
@@ -11,31 +10,26 @@ it excludes. For the reasoning behind the design choices, see
 | Property | Value |
 |---|---|
 | Machine | ASUS ROG laptop, Linux, 12 cores |
-| TSC frequency | 2591 MHz (measured via wall-clock calibration) |
-| Power governor | firmware-controlled (no `cpufreq` driver) |
+| TSC frequency | 2591 MHz (wall-clock calibrated) |
+| Power governor | firmware-controlled (`intel_pstate` rejected the CPU) |
 | CPU isolation | none |
-| Build profile | `--release` |
+| Build | `--release` |
 
-**Governor note:** `dmesg` shows `intel_pstate: CPU model not
-supported`. Frequency is controlled by the ROG firmware, not Linux.
-Absolute numbers drift ~30% between runs. The baseline subtraction
-cancels this for the numbers we quote.
+Absolute numbers drift ~30% between runs because firmware controls
+CPU frequency. Baseline subtraction cancels this for the numbers
+quoted; raw figures do not.
 
 ---
 
 ## Methodology
 
-Three measurement tools, three purposes:
-
-- **RDTSC** (`rdtsc` + `lfence`) — sub-nanosecond, cycle-level. Needs
-  baseline subtraction because the read itself costs ~26 ns.
-- **Baseline subtraction** — measure `rdtsc; empty; rdtsc` (floor),
-  then `rdtsc; work; rdtsc` (full). Subtract. The difference is the
-  honest cost of `work`.
-- **Criterion** — statistical tool for regression detection. Its
-  `iter_batched` overhead is ~55–60 ns, so numbers are upper bounds,
-  not precise latencies. Good for catching slowdowns, not for
-  claiming nanosecond figures.
+- **RDTSC** — `rdtsc` + `lfence`, sub-nanosecond resolution. The read
+  itself costs ~26 ns, so baseline subtraction is mandatory: measure
+  `rdtsc; empty; rdtsc` and `rdtsc; work; rdtsc`, subtract per-
+  percentile.
+- **Criterion `iter()`** — no setup/drop overhead. Comparable to RDTSC.
+- **Criterion `iter_batched`** — ~55–60 ns overhead. Numbers are
+  upper bounds, useful for regression detection, not precise latency.
 
 Reproduce:
 
@@ -44,67 +38,74 @@ cargo test -p hft-benchmarks --release -- --nocapture --test-threads=1
 cargo bench -p hft-orderbook --bench book
 cargo bench -p hft-orderbook --bench book_rdtsc
 cargo bench -p hft-feed --bench decode
+cargo run -p hft-feed --release --bin pipeline
 ```
 
 ---
 
-## Results
-
-### Timing harness — `timestamp_now()`
+## Timing harness — `timestamp_now()`
 
 RDTSC, baseline-subtracted, 100k samples, pinned to core 2.
 
 | Path | p50 | p99 | p99.9 |
 |---|---|---|---|
-| baseline (`rdtsc; rdtsc`) | 26 ns | 30 ns | 35 ns |
-| full (`rdtsc; now; rdtsc`) | 54 ns | 58 ns | 64 ns |
+| baseline | 26 ns | 30 ns | 35 ns |
+| full | 54 ns | 58 ns | 64 ns |
 | **true cost** | **28 ns** | **28 ns** | **29 ns** |
 
-The tightness (28/28/29) is the proof: the function is deterministic,
-no hidden branches. 28 ns × 2.591 GHz ≈ 73 cycles — dominated by
-`lfence` cost under Spectre mitigations.
+p50 = p99 = p99.9 within 1 ns means the function is deterministic.
+28 ns × 2.591 GHz ≈ 73 cycles, dominated by `lfence` under Spectre
+mitigations.
 
-**This 28 ns is a fixed tax on every measurement below.** All further
-benchmarks subtract it.
+---
 
-### Order book — read
-
-RDTSC, baseline-subtracted, 100k samples.
+## Order book — reads (RDTSC)
 
 | Operation | p50 | p99 | p99.9 |
 |---|---|---|---|
-| `best_bid_read` | 3 ns | 3 ns | 8 ns |
+| `best_bid_read` | 1 ns | 2 ns | 6 ns |
+| `best_ask_read` | 1 ns | 2 ns | 5 ns |
 
-3 ns ≈ one 128-bit load. The 8 ns tail is the load occasionally
-missing L1. **Honest number.**
+**Range across runs:** p50 = 1–3 ns, p99.9 = 5–8 ns. Low end is RDTSC
+pipeline overlap (see PORTFOLIO § Problem 11); high end is an L1/L2
+boundary hit. 3 ns is the conservative p50 to quote.
 
-### Order book — mutations
+Both sides cost the same — the ask path uses no `.reverse()` in the
+binary search.
 
-Criterion. Upper bounds only — `iter_batched` overhead dominates the
-operation. Useful for regression detection, not precise latency.
+---
+
+## Order book — mutations (criterion `iter_batched`)
+
+Upper bounds only. Criterion overhead ~55–60 ns dominates the
+operation.
 
 | Operation | Time (upper bound) |
 |---|---|
-| `add_same_price` | 78.7 ns |
-| `add_new_price_best` | 75.8 ns |
-| `add_new_price_mid` | 74.2 ns |
-| `add_new_price_worst` | 69.0 ns |
-| `cancel_partial` | 63.0 ns |
-| `cancel_full` | 70.7 ns |
+| `add_same_price` (index 0, no shift) | 61.5 ns |
+| `add_exist_price_update` (index 2, no shift) | 61.1 ns |
+| `add_new_price_best` (insert at 0, 10-level shift) | 72.9 ns |
+| `add_new_price_mid` (insert at 3, 7-level shift) | 66.3 ns |
+| `add_new_price_worst` (append, no shift) | 66.1 ns |
+| `cancel_partial` (reduce qty, no shift) | 61.4 ns |
+| `cancel_full` (remove level, 9-level shift) | 65.9 ns |
 
-**Within-run deltas** (criterion subtraction, legitimate because both
-numbers share the same overhead):
+**Within-run deltas** (both rows share the same overhead):
 
-- `cancel_full` − `cancel_partial` = 7.7 ns for 9 shifted levels → **~0.85 ns per shift**
-- `add_new_price_best` − `add_new_price_worst` = 6.8 ns for 10 shifts → **~0.68 ns per shift**
+- `cancel_full` − `cancel_partial` = 4.5 ns for 9 shifts → **~0.5 ns per level**
+- `add_new_price_best` − `add_new_price_worst` = 6.8 ns for 10 shifts → **~0.7 ns per level**
 
-Worst case (DEPTH=20): 20 × ~0.7 ns = **~14 ns** of shifting.
-**Inferred, not directly measured.**
+Worst case at `DEPTH = 20`: **~10–14 ns of shifting** on top of the
+base operation. Depth is a real tuning knob.
 
-### Feed handler — decode
+**All mutation numbers are upper bounds.** The operation is smaller
+— bounded below by shifting cost, above by criterion's overhead. The
+honest figure needs working RDTSC batch mode, attempted and abandoned
+(PORTFOLIO § Problem 2).
 
-Criterion `iter()`, no setup overhead. 24-byte zero-copy messages via
-`zerocopy::ref_from_prefix`.
+---
+
+## Feed handler — decoder (criterion `iter()`)
 
 | Operation | Time |
 |---|---|
@@ -113,44 +114,69 @@ Criterion `iter()`, no setup overhead. 24-byte zero-copy messages via
 | `decode_add` | 3.17 ns |
 | `decode_stream_1000` (per message) | 2.50 ns |
 
-Floor-to-full gap (1.4–2.2 ns) = type dispatch + side validation.
-At 3 ns/msg → **1M msgs/sec uses 0.3% of one CPU core.**
+Floor-to-full gap (1.4–2.2 ns) is the `match bytes[0]` dispatch plus
+`side > 1` validation. No allocation, no parsing — decode borrows
+from the input buffer.
+
+---
+
+## Feed handler — end-to-end pipeline
+
+100,000 messages (2.4 MB in-memory stream), 5 runs:
+
+| Run | msgs/sec |
+|---|---|
+| 1 | 75.1 M |
+| 2 | 37.2 M (outlier) |
+| 3 | 64.7 M |
+| 4 | 67.7 M |
+| 5 | 76.2 M |
+| **Median** | **67.7 M** |
+| **Range** | 37–76 M |
+
+At 67.7 M msgs/sec, one message takes **~15 ns end-to-end**. Decoder
+is ~3 ns of that; the rest is book update, strategy check, loop
+overhead.
+
+**This is cache-warm throughput, not network throughput.** The 2.4 MB
+stream is L3-resident; the kernel UDP receive path is not measured
+here — see `udp_demo`.
+
+The 37.2 M outlier is firmware CPU throttling during that run.
+
+---
+
+## Fuzz testing — decoder
+
+`cargo-fuzz` + libFuzzer on `decode()`, arbitrary `&[u8]` input.
+
+| Metric | Value |
+|---|---|
+| Duration | 61 s |
+| Inputs | 18.5 M |
+| Executions/sec | ~303 K |
+| Crashes | 0 |
+| Panics | 0 |
+
+Target: `decode()` must not panic, must not read out of bounds, must
+not loop forever on any input. Empty, 1, 23, 24, larger byte slices
+all covered.
+
+```bash
+cd crates/hft-feed
+cargo +nightly fuzz run decode
+```
+
+Fuzz crate is excluded from the workspace (nightly-only, `no_main`).
 
 ---
 
 ## What is not measured
 
-- **Mutations with RDTSC** — attempted and abandoned. The compiler
-  defeated setup-subtraction (`cancel_full` reported faster than
-  `cancel_partial`, impossible). Criterion upper bounds are the
-  honest alternative. See [Roadmap](#roadmap).
-- **Kernel bypass** — no `io_uring`, `AF_XDP`, `DPDK`.
-- **`isolcpus` / `SCHED_FIFO`** — not applied (dev laptop, GRUB risk).
-- **Huge pages, NUMA** — not applicable on this hardware.
-- **End-to-end tick-to-trade** — not built yet (strategy stub).
-- **Multi-instrument scaling** — single instrument only.
-
----
-
-## Roadmap
-
-- [x] RDTSC harness + TSC calibration + baseline subtraction
-- [x] Thread pinning via `sched_setaffinity`
-- [x] Order book (fixed-depth 20-level, sorted array, aggregated)
-- [x] `order_count` field removed after semantic analysis (measured)
-- [x] `best_bid_read` RDTSC-measured at 3 ns
-- [x] Feed handler (zero-copy decode, 3 ns/msg)
-- [x] UDP demo (sender + receiver, realistic drops)
-- [ ] `isolcpus=2,3 nohz_full=2,3 rcu_nocbs=2,3` — production tuning, documented only
-- [ ] `SCHED_FIFO` on measurement thread
-- [ ] Per-order tracking (slab + intrusive list) — for real order identity
-- [ ] End-to-end tick-to-trade pipeline
-- [ ] Fuzz the decode path
-
----
-
-## Change log
-
-- **2026-10-24** — Timing harness: TSC 2591 MHz; `timestamp_now()` at 28 ns (p50 = p99 = p99.9) via baseline subtraction.
-- **2026-10-24** — Order book: 20-level LOB; `order_count` removed (24→16 byte `PriceLevel`); mutations 63–79 ns (criterion upper bounds); `best_bid_read` at 3 ns (RDTSC); per-shift cost inferred ~0.7 ns.
-- **2026-10-25** — Feed handler: zero-copy decode via `zerocopy`; `decode_add` 3.17 ns, `decode_cancel` 2.35 ns, stream 2.50 ns/msg; floor 0.97 ns; UDP demo added.
+- **Mutations with RDTSC.** Attempted; abandoned (PORTFOLIO § Problem 2).
+- **Network receive path.** `udp_demo` exists as a demo; its latency
+  is not benchmarked. Kernel UDP round-trip is ~tens of µs.
+- **`isolcpus` / `SCHED_FIFO`.** Not applied (GRUB edit + reboot risk).
+- **Huge pages, NUMA.** Not applicable on this hardware.
+- **Strategy alpha.** The strategy is a stub.
+- **Multi-instrument scaling.** Single instrument only.

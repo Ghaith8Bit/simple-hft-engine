@@ -1,52 +1,41 @@
-[![ci](https://github.com/Ghaith8Bit/simple-hft-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Ghaith8Bit/simple-hft-engine/actions/workflows/ci.yml)
-
 # simple-hft-engine
 
-A limit order book and market data feed handler in Rust, built to be
-**measured and reproducible**.
+Limit order book and zero-copy market data feed handler in Rust, with
+an end-to-end pipeline and a custom RDTSC benchmark harness.
 
-Most portfolio HFT projects show impressive numbers. This one shows
-the numbers, the tool that produced each one, and what each one
-does not include. That separation is the point.
+Most HFT showcase projects show numbers. This one shows the numbers,
+the tool that produced each one, and what each one excludes.
 
 ---
 
-## The numbers
+## Headline numbers
 
-| What | Time | How measured |
+| What | Time | Tool |
 |---|---|---|
-| `best_bid_read` | **3 ns** | RDTSC, baseline-subtracted |
-| `timestamp_now()` | **28 ns** | RDTSC, baseline-subtracted |
-| Feed message decode | **3 ns** | criterion `iter()` |
-| Order book mutations | 63–79 ns | criterion `iter_batched` (upper bound) |
+| `best_bid` / `best_ask` read | 1–3 ns (5–8 ns p99.9) | RDTSC, baseline-subtracted |
+| `timestamp_now()` | 28 ns | RDTSC, baseline-subtracted |
+| Feed message decode | 3.17 ns | criterion `iter()` |
+| Order book mutations | 60–73 ns | criterion `iter_batched` (upper bound) |
+| End-to-end pipeline | **67M msgs/sec** (37–76M range) | `Instant`, 100k in-memory stream |
+| Fuzz testing | 18.5M inputs, 61s, no crashes | `cargo-fuzz` + libFuzzer |
 
-**Why the last column exists:** 3 ns from RDTSC baseline subtraction
-is a measurement. 63 ns from criterion's `iter_batched` is a ceiling
-— the real operation is smaller, but the tool cannot see below its
-own overhead. Every number in [`BENCHMARKS.md`](BENCHMARKS.md) says
-which kind it is and why. That is what separates a benchmark from a
-claim.
+**Why a tool column:** RDTSC gives a direct measurement (needs baseline
+subtraction). Criterion `iter_batched` gives an upper bound — its
+55–60 ns overhead dominates the operation. Every figure in
+[`BENCHMARKS.md`](BENCHMARKS.md) says which kind it is.
 
 ---
 
 ## What is in here
 
-- **`hft-core`** — types, `no_std`, zero dependencies
-- **`hft-orderbook`** — 20-level fixed-depth LOB, sorted array, no allocation
-- **`hft-feed`** — zero-copy `zerocopy` decode + UDP sender/receiver
-- **`hft-benchmarks`** — RDTSC timer, TSC calibration, percentile stats
+| Crate | What |
+|---|---|
+| [`hft-core`](crates/hft-core) | `Price`, `Quantity`, `Timestamp`, `Side`. `no_std`, zero deps. |
+| [`hft-orderbook`](crates/hft-orderbook) | 20-level fixed-depth LOB, sorted array, aggregated by price. |
+| [`hft-feed`](crates/hft-feed) | Zero-copy ITCH-style decoder, sequence tracking, UDP demo, pipeline binary. |
+| [`hft-benchmarks`](crates/hft-benchmarks) | RDTSC timer, TSC calibration, thread pinning, percentile stats. |
 
-**33 tests. Zero warnings under `-D warnings`. ~1,500 lines of hot-path code.**
-
----
-
-## What this project demonstrates
-
-- **Measurement discipline** — I built the stopwatch before the car, and I know what the stopwatch costs (28 ns per read).
-- **Documented failure** — I tried to measure mutations with RDTSC. It produced physically impossible results (an operation with more work reported faster than one with less). I stopped, switched to criterion, and labeled those numbers as upper bounds. The failure is in the repo.
-- **Trade-off reasoning** — every design choice (fixed-depth array over `BTreeMap`, aggregated over per-order, `no_std` over `std`) has a written answer in [`PORTFOLIO.md`](PORTFOLIO.md).
-- **Zero-copy discipline** — the decode path does not copy, parse, or allocate. A test asserts the decoded reference points into the original buffer. If the pointer moved, the test fails.
-- **Layering the compiler enforces** — `hft-core` cannot allocate because it is `no_std`. Not "should not" — cannot. The compiler refuses.
+**38 tests. Zero warnings under `-D warnings`. Fuzz-tested decoder. CI green.**
 
 ---
 
@@ -54,22 +43,37 @@ claim.
 
 ```bash
 cargo test --workspace --release
+cargo run -p hft-feed --release --bin pipeline
 cargo bench -p hft-orderbook --bench book_rdtsc
 cargo bench -p hft-feed --bench decode
 ```
 
-The order book bench prints `best_bid_read: p50 = 3 ns` on my machine.
-On yours it will print a number close to that (firmware frequency
-varies) — the methodology, not the specific figure, is what travels.
+`pipeline` runs 100,000 synthetic messages through decode → apply →
+strategy stub and prints end-to-end throughput.
 
 ---
 
-## Where to look next
+## Design
+
+- **No async runtime.** Single-threaded hot path, pinned to one core.
+- **No heap allocation** in `hft-core` or `hft-orderbook` (`no_std`).
+- **Zero-copy decode** via `zerocopy` — borrows from the input buffer.
+  A test asserts the decoded reference points into the source buffer.
+- **Sequence-number gap detection** in `udp_demo` — logs missing,
+  duplicate, and out-of-order packets.
+- **Two measurement tools.** RDTSC for read costs. Criterion for
+  mutation regression baselines. The crossover is documented.
+
+---
+
+## Documentation
 
 - [`BENCHMARKS.md`](BENCHMARKS.md) — every number, its tool, its limits
-- [`PORTFOLIO.md`](PORTFOLIO.md) — 11 design problems and how I solved them
+- [`PORTFOLIO.md`](PORTFOLIO.md) — 14 design problems and how they were solved
 
-If you read one section: **[`PORTFOLIO.md § Problem 2`](PORTFOLIO.md)** — where I tried to measure mutations with RDTSC, it failed, and I explain why that failure is in the repo.
+If you read one section: **[`PORTFOLIO.md § Problem 2`](PORTFOLIO.md)**
+— where measuring mutations with RDTSC failed, and why that failure
+is documented rather than hidden.
 
 ---
 
