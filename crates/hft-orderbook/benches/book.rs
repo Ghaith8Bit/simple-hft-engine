@@ -24,10 +24,36 @@ fn bench_best_bid(c: &mut Criterion) {
     });
 }
 
+fn bench_best_ask(c: &mut Criterion) {
+    // Mirror of bench_best_bid on the ask side. Ask path uses no
+    // `.reverse()` in its binary search, so cost should be identical.
+    let mut book = populated_book(10, 100);
+    for i in 0..10i64 {
+        book.add_order(Side::Ask, Price(102 + i * 2), Quantity(10));
+    }
+    c.bench_function("best_ask_read", |b| {
+        b.iter(|| black_box(book.best_ask()));
+    });
+}
+
 fn bench_add_same_price(c: &mut Criterion) {
     // Fast path: price 100 is at index 0. Binary search hits Ok(0),
     // no array shift, only qty/order_count updates.
     c.bench_function("add_same_price", |b| {
+        b.iter_batched(
+            || populated_book(10, 100),
+            |mut book| {
+                book.add_order(Side::Bid, Price(100), Quantity(1));
+                black_box(book);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+}
+
+fn bench_add_existing_price_update(c: &mut Criterion) {
+    c.bench_function("add_exist_price_update", |b| {
+        // ← name here
         b.iter_batched(
             || populated_book(10, 100),
             |mut book| {
@@ -120,7 +146,9 @@ fn bench_cancel_full(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_best_bid,
+    bench_best_ask,
     bench_add_same_price,
+    bench_add_existing_price_update,
     bench_add_new_price_best,
     bench_add_new_price_mid,
     bench_add_new_price_worst,
