@@ -49,11 +49,12 @@ pub fn generate_stream(n: usize) -> Vec<u8> {
     let mut buf = Vec::with_capacity(n * MSG_SIZE);
     for i in 0..n {
         let seq = i as u32;
-        let price = 100 - (i as i64 % 10);
         let msg = if i % 2 == 0 {
+            let price = 100 - ((i / 2) as i64 % 10) * 2;
             encode_add(seq, 0, price, 10)
         } else {
-            encode_cancel(seq, 0, price, 5)
+            let price = 102 + ((i / 2) as i64 % 10) * 2;
+            encode_add(seq, 1, price, 10)
         };
         buf.extend_from_slice(msg.as_slice());
     }
