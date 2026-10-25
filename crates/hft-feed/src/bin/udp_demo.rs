@@ -34,7 +34,7 @@ fn main() -> std::io::Result<()> {
         if let Ok(msg) = decode(buf.as_slice()) {
             apply(msg, &mut book);
             count += 1;
-            if count % 1000 == 0 {
+            if count.is_multiple_of(1000) {
                 let bid = book.best_bid().map(|l| l.price.0).unwrap_or(0);
                 let ask = book.best_ask().map(|l| l.price.0).unwrap_or(0);
                 eprintln!("msgs={} bid={} ask={}", count, bid, ask);

@@ -44,11 +44,11 @@ mod tests {
     fn apply_cancel_removes_level() {
         let mut book = OrderBook::new();
         apply(
-            decode(&encode_add(1, 0, 100, 10).as_slice()).unwrap(),
+            decode(encode_add(1, 0, 100, 10).as_slice()).unwrap(),
             &mut book,
         );
         apply(
-            decode(&encode_cancel(2, 0, 100, 10).as_slice()).unwrap(),
+            decode(encode_cancel(2, 0, 100, 10).as_slice()).unwrap(),
             &mut book,
         );
         assert!(book.best_bid().is_none());
