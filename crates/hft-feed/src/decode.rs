@@ -19,6 +19,17 @@ pub enum Message<'a> {
     Cancel(&'a CancelMsg),
 }
 
+impl<'a> Message<'a> {
+    /// Sequence number from the message header. Identical for `Add`
+    /// and `Cancel`.
+    pub fn seq(&self) -> u32 {
+        match self {
+            Message::Add(m) => m.header.seq,
+            Message::Cancel(m) => m.header.seq,
+        }
+    }
+}
+
 pub fn decode(bytes: &[u8]) -> Result<Message<'_>, DecodeError> {
     if bytes.is_empty() {
         return Err(DecodeError::Empty);
