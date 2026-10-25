@@ -1,0 +1,16 @@
+[package]
+name = "hft-feed"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hft-core = { path = "../hft-core" }
+hft-orderbook = { path = "../hft-orderbook" }
+zerocopy = { version = "0.8", features = ["derive"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "decode"
+harness = false

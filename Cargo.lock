@@ -226,6 +226,16 @@ name = "hft-core"
 version = "0.1.0"
 
 [[package]]
+name = "hft-feed"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "hft-core",
+ "hft-orderbook",
+ "zerocopy",
+]
+
+[[package]]
 name = "hft-orderbook"
 version = "0.1.0"
 dependencies = [
