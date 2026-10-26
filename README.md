@@ -1,3 +1,5 @@
+[![ci](https://github.com/Ghaith8Bit/simple-hft-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Ghaith8Bit/simple-hft-engine/actions/workflows/ci.yml)
+
 # simple-hft-engine
 
 Limit order book and zero-copy market data feed handler in Rust, with
@@ -11,7 +13,7 @@ the tool that produced each one, and what each one excludes.
 ## Headline numbers
 
 | What | Time | Tool |
-|---|---|---|
+| --- | --- | --- |
 | `best_bid` / `best_ask` read | 1–3 ns (5–8 ns p99.9) | RDTSC, baseline-subtracted |
 | `timestamp_now()` | 28 ns | RDTSC, baseline-subtracted |
 | Feed message decode | 3.17 ns | criterion `iter()` |
@@ -29,7 +31,7 @@ subtraction). Criterion `iter_batched` gives an upper bound — its
 ## What is in here
 
 | Crate | What |
-|---|---|
+| --- | --- |
 | [`hft-core`](crates/hft-core) | `Price`, `Quantity`, `Timestamp`, `Side`. `no_std`, zero deps. |
 | [`hft-orderbook`](crates/hft-orderbook) | 20-level fixed-depth LOB, sorted array, aggregated by price. |
 | [`hft-feed`](crates/hft-feed) | Zero-copy ITCH-style decoder, sequence tracking, UDP demo, pipeline binary. |

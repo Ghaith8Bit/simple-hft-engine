@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use hft_feed::decode::decode;
 use hft_feed::replay::{encode_add, encode_cancel, generate_stream};
-use hft_feed::wire::{AddOrderMsg, MSG_SIZE};
+use hft_feed::wire::AddOrderMsg;
 use zerocopy::FromBytes;
 
 fn bench_decode_add(c: &mut Criterion) {
@@ -29,12 +29,10 @@ fn bench_decode_stream_1000(c: &mut Criterion) {
     c.bench_function("decode_stream_1000", |b| {
         b.iter(|| {
             let mut count = 0u32;
-            let mut offset = 0;
-            while offset + MSG_SIZE <= stream.len() {
-                if decode(&stream[offset..offset + MSG_SIZE]).is_ok() {
+            for aligned in stream.iter() {
+                if decode(aligned.as_slice()).is_ok() {
                     count += 1;
                 }
-                offset += MSG_SIZE;
             }
             black_box(count);
         });

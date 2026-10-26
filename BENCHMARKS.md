@@ -132,19 +132,17 @@ suppressed during timed runs.
 
 | Metric | Value |
 | --- | --- |
-| Median | **65.0 M msgs/sec** |
-| Range | 62.8 – 66.4 M |
-| Run-to-run spread | 5.5% |
+| Median | **78.8 M msgs/sec** |
+| Range | 78.4 – 82.1 M |
+| Run-to-run spread | 4.6% |
+| Single fresh-process run | 75.3 M msgs/sec |
 
-At the median, one message takes **~15 ns end-to-end** (decoder
-~3 ns; the rest is book update, strategy check, and loop overhead).
+At the median, one message takes **~13 ns end-to-end** (decoder ~3 ns;
+the rest is book update, strategy check, and loop overhead).
 
-**A single fresh-process run measures lower (~55 M msgs/sec).** The
-first run in a process catches the CPU mid-boost; by run 3–5 the
-frequency has stabilized at the boosted state. The 65 M figure is
-the steady-state number; the ~55 M figure is what a reviewer sees if
-they run `cargo run --bin pipeline` once. Both are real — they
-measure different CPU states.
+The single-run number is lower because the first run in a process
+catches the CPU mid-boost; by runs 3–5 the frequency has stabilized.
+Both figures are real — they measure different CPU states.
 
 **This is cache-warm throughput, not network throughput.** The 2.4 MB
 stream is L3-resident; the kernel UDP receive path is not measured

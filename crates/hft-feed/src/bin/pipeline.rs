@@ -13,7 +13,6 @@ use hft_feed::apply::apply;
 use hft_feed::decode::decode;
 use hft_feed::replay::generate_stream;
 use hft_feed::sequence::{SequenceEvent, SequenceTracker};
-use hft_feed::wire::MSG_SIZE;
 use hft_orderbook::OrderBook;
 use std::time::{Duration, Instant};
 
@@ -46,10 +45,8 @@ fn run_pipeline(n: usize, verbose: bool) -> RunResult {
     let mut signals = 0u64;
 
     let start = Instant::now();
-    let mut offset = 0;
-    while offset + MSG_SIZE <= stream.len() {
-        let slice = &stream[offset..offset + MSG_SIZE];
-        offset += MSG_SIZE;
+    for aligned in stream.iter() {
+        let slice = aligned.as_slice();
 
         let Ok(msg) = decode(slice) else {
             rejected += 1;
