@@ -130,6 +130,11 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
 
+    if runs == 0 {
+        eprintln!("error: --runs must be at least 1");
+        std::process::exit(2);
+    }
+
     if !no_warmup {
         if !quiet {
             eprintln!("warmup: {} msgs (discarded)", N);
@@ -173,7 +178,11 @@ fn main() {
     if runs == 1 {
         println!("elapsed: {:.2?}  ({:.1}M msgs/sec)", r.elapsed, speeds[0]);
     } else {
-        let median = speeds[runs / 2];
+        let median = if runs.is_multiple_of(2) {
+            (speeds[runs / 2 - 1] + speeds[runs / 2]) / 2.0
+        } else {
+            speeds[runs / 2]
+        };
         println!(
             "{} runs: median {:.1}M msgs/sec, range [{:.1}M, {:.1}M]",
             runs,

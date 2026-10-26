@@ -18,7 +18,7 @@ the tool that produced each one, and what each one excludes.
 | `timestamp_now()` | 28 ns | RDTSC, baseline-subtracted |
 | Feed message decode | 3.17 ns | criterion `iter()` |
 | Order book mutations | 60–73 ns | criterion `iter_batched` (upper bound) |
-| End-to-end pipeline | **67M msgs/sec** (37–76M range) | `Instant`, 100k in-memory stream |
+| End-to-end pipeline | **68.1M msgs/sec** (66.1–70.2M range) | `Instant`, 100k in-memory stream |
 | Fuzz testing | 18.5M inputs, 61s, no crashes | `cargo-fuzz` + libFuzzer |
 
 **Why a tool column:** RDTSC gives a direct measurement (needs baseline
@@ -37,7 +37,7 @@ subtraction). Criterion `iter_batched` gives an upper bound — its
 | [`hft-feed`](crates/hft-feed) | Zero-copy ITCH-style decoder, sequence tracking, UDP demo, pipeline binary. |
 | [`hft-benchmarks`](crates/hft-benchmarks) | RDTSC timer, TSC calibration, thread pinning, percentile stats. |
 
-**38 tests. Zero warnings under `-D warnings`. Fuzz-tested decoder. CI green.**
+**43 tests. Zero warnings under `-D warnings`. Fuzz-tested decoder. CI green.**
 
 ---
 

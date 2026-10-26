@@ -132,17 +132,20 @@ suppressed during timed runs.
 
 | Metric | Value |
 | --- | --- |
-| Median | **78.8 M msgs/sec** |
-| Range | 78.4 – 82.1 M |
-| Run-to-run spread | 4.6% |
-| Single fresh-process run | 75.3 M msgs/sec |
+| Median | **68.1 M msgs/sec** |
+| Range | 66.1 – 70.2 M |
+| Run-to-run spread | 6.0% |
+| Single fresh-process run | ~55–75 M (see below) |
 
-At the median, one message takes **~13 ns end-to-end** (decoder ~3 ns;
+At the median, one message takes **~15 ns end-to-end** (decoder ~3 ns;
 the rest is book update, strategy check, and loop overhead).
 
-The single-run number is lower because the first run in a process
-catches the CPU mid-boost; by runs 3–5 the frequency has stabilized.
-Both figures are real — they measure different CPU states.
+**Thermal variance is real and large.** On a cool laptop the same
+binary reaches 78–82 M msgs/sec; under thermal throttling it drops to
+65–70 M. The 68.1 M figure is what this machine reproduces at ambient
+temperature after sustained load. Larger numbers are possible on a
+dedicated server or a freshly-cooled laptop, but they are not
+reproducible on demand — hence the conservative figure here.
 
 **This is cache-warm throughput, not network throughput.** The 2.4 MB
 stream is L3-resident; the kernel UDP receive path is not measured
