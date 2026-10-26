@@ -1,0 +1,13 @@
+flowchart TD
+    A["Observe next sequence number"] --> B{"Compare with last"}
+    B -->|"First message"| C["First"]
+    B -->|"Same number"| D["Duplicate"]
+    B -->|"Previous + 1"| E["Normal"]
+    B -->|"Forward jump"| F["Gap: count missing numbers"]
+    B -->|"Older number"| G["Out of order"]
+    C --> H["Update statistics / sequence state as implemented"]
+    D --> I["Increment duplicate count"]
+    E --> H
+    F --> H
+    G --> J["Increment out-of-order count<br/>do not move last sequence backward"]
+    K["Detection only: no recovery is implemented"] -.-> F

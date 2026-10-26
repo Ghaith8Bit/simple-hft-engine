@@ -1,0 +1,6 @@
+flowchart LR
+    A["cargo test --workspace --release"] --> B["Check tests"]
+    C["cargo run -p hft-feed --release --bin pipeline -- --runs 5 --quiet"] --> D["Warmup, then timed runs"]
+    D --> E["Median and range"]
+    F["cargo bench -p hft-feed --bench decode"] --> G["Decoder benchmark"]
+    H["cargo bench -p hft-orderbook --bench book_rdtsc"] --> I["Best bid / ask read benchmark"]

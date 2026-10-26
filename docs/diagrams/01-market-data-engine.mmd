@@ -1,0 +1,6 @@
+flowchart LR
+    A["Synthetic market update"] --> B["Small message made of bytes"]
+    B --> C["Rust code reads the message"]
+    C --> D["Order book changes"]
+    D --> E["Current best bid and ask"]
+    E --> F["Simple spread check"]

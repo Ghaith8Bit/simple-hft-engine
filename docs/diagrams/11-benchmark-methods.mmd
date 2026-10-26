@@ -1,0 +1,14 @@
+flowchart TD
+    A["Choose workload"] --> B{"Operation"}
+    B -->|"Small read / timestamp"| C["RDTSC + lfence"]
+    B -->|"Decoder"| D["Criterion iter()"]
+    B -->|"Book mutation"| E["Criterion iter_batched"]
+    B -->|"Full synthetic pipeline"| F["Instant around 100k-message loop"]
+    C --> G["Subtract baseline percentiles"]
+    D --> H["Report Criterion timing"]
+    E --> I["Report upper bound"]
+    F --> J["Report throughput across runs"]
+    G --> K["Interpret with method caveats"]
+    H --> K
+    I --> K
+    J --> K

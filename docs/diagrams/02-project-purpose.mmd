@@ -1,0 +1,8 @@
+flowchart TB
+    A["Input: generated messages"] --> B["Decode"]
+    B --> C["Track sequence"]
+    C --> D["Apply update"]
+    D --> E["Book state"]
+    E --> F["Spread-threshold signal count"]
+    G["Benchmarks"] -. "measure selected paths" .-> B
+    G -.-> D

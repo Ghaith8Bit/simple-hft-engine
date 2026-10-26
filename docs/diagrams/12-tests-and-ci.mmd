@@ -1,0 +1,10 @@
+flowchart TB
+    A["Local / CI checks"] --> B["cargo fmt --check"]
+    A --> C["cargo clippy -- -D warnings"]
+    A --> D["cargo test --workspace --release"]
+    A --> E["Compile benchmarks"]
+    A --> F["RDTSC benchmark: informational"]
+    A --> G["cargo-deny audit"]
+    A --> H["Build fuzz target: informational, continue-on-error"]
+    I["Separate recorded fuzz run"] --> J["18.5M inputs in 61s<br/>0 crashes / 0 panics reported"]
+    H -. "build is not a fuzz campaign" .-> I
