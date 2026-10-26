@@ -39,12 +39,16 @@ pub fn encode_cancel(seq: u32, side: u8, price: i64, qty: u64) -> AlignedMsg {
     out
 }
 
-/// Build a synthetic stream of `n` messages. Alternates add/cancel on
-/// the bid side, prices cycling over 10 levels.
+/// Build a synthetic stream of `n` messages. Alternates add on both
+/// sides: even i = bid, odd i = ask. Bid prices descend from 100 by 2
+/// (100, 98, 96, ...); ask prices ascend from 102 by 2 (102, 104, ...).
+/// Two-sided stream so `best_bid()` and `best_ask()` are both populated.
 ///
-/// Slices into the returned `Vec<u8>` are 8-byte aligned: the allocator
-/// returns at least 16-byte-aligned pointers, and `MSG_SIZE = 24` is a
-/// multiple of 8, so every `&stream[i*24..(i+1)*24]` is aligned.
+/// Alignment note: slicing the returned `Vec<u8>` at multiples of
+/// `MSG_SIZE` (24) is *usually* 8-aligned because standard allocators
+/// return 8- or 16-aligned base pointers, and 24 is a multiple of 8.
+/// This is an allocator property, not a Rust API guarantee. Decoding
+/// unaligned slices returns `DecodeError::Unaligned` — no panic, no UB.
 pub fn generate_stream(n: usize) -> Vec<u8> {
     let mut buf = Vec::with_capacity(n * MSG_SIZE);
     for i in 0..n {

@@ -8,7 +8,7 @@ it excludes. For the design reasoning, see [`PORTFOLIO.md`](PORTFOLIO.md).
 ## Environment
 
 | Property | Value |
-|---|---|
+| --- | --- |
 | Machine | ASUS ROG laptop, Linux, 12 cores |
 | TSC frequency | 2591 MHz (wall-clock calibrated) |
 | Power governor | firmware-controlled (`intel_pstate` rejected the CPU) |
@@ -30,6 +30,9 @@ quoted; raw figures do not.
 - **Criterion `iter()`** — no setup/drop overhead. Comparable to RDTSC.
 - **Criterion `iter_batched`** — ~55–60 ns overhead. Numbers are
   upper bounds, useful for regression detection, not precise latency.
+- **Pipeline** — `cargo run -p hft-feed --release --bin pipeline --
+  --runs 5 --quiet`. Warmup run of 100k discarded, then median of 5
+  timed runs. Progress logging suppressed during measurement.
 
 Reproduce:
 
@@ -38,7 +41,7 @@ cargo test -p hft-benchmarks --release -- --nocapture --test-threads=1
 cargo bench -p hft-orderbook --bench book
 cargo bench -p hft-orderbook --bench book_rdtsc
 cargo bench -p hft-feed --bench decode
-cargo run -p hft-feed --release --bin pipeline
+cargo run -p hft-feed --release --bin pipeline -- --runs 5 --quiet
 ```
 
 ---
@@ -48,7 +51,7 @@ cargo run -p hft-feed --release --bin pipeline
 RDTSC, baseline-subtracted, 100k samples, pinned to core 2.
 
 | Path | p50 | p99 | p99.9 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | baseline | 26 ns | 30 ns | 35 ns |
 | full | 54 ns | 58 ns | 64 ns |
 | **true cost** | **28 ns** | **28 ns** | **29 ns** |
@@ -81,7 +84,7 @@ Upper bounds only. Criterion overhead ~55–60 ns dominates the
 operation.
 
 | Operation | Time (upper bound) |
-|---|---|
+| --- | --- |
 | `add_same_price` (index 0, no shift) | 61.5 ns |
 | `add_exist_price_update` (index 2, no shift) | 61.1 ns |
 | `add_new_price_best` (insert at 0, 10-level shift) | 72.9 ns |
@@ -108,7 +111,7 @@ honest figure needs working RDTSC batch mode, attempted and abandoned
 ## Feed handler — decoder (criterion `iter()`)
 
 | Operation | Time |
-|---|---|
+| --- | --- |
 | `ref_from_bytes` floor (no dispatch) | 0.97 ns |
 | `decode_cancel` | 2.35 ns |
 | `decode_add` | 3.17 ns |
@@ -122,27 +125,30 @@ from the input buffer.
 
 ## Feed handler — end-to-end pipeline
 
-100,000 messages (2.4 MB in-memory stream), 5 runs:
+100,000 messages (2.4 MB in-memory stream) through decode → apply →
+strategy. Method: `cargo run -p hft-feed --release --bin pipeline --
+--runs 5 --quiet`. Warmup run of 100k discarded; progress logging
+suppressed during timed runs.
 
-| Run | msgs/sec |
-|---|---|
-| 1 | 75.1 M |
-| 2 | 37.2 M (outlier) |
-| 3 | 64.7 M |
-| 4 | 67.7 M |
-| 5 | 76.2 M |
-| **Median** | **67.7 M** |
-| **Range** | 37–76 M |
+| Metric | Value |
+| --- | --- |
+| Median | **65.0 M msgs/sec** |
+| Range | 62.8 – 66.4 M |
+| Run-to-run spread | 5.5% |
 
-At 67.7 M msgs/sec, one message takes **~15 ns end-to-end**. Decoder
-is ~3 ns of that; the rest is book update, strategy check, loop
-overhead.
+At the median, one message takes **~15 ns end-to-end** (decoder
+~3 ns; the rest is book update, strategy check, and loop overhead).
+
+**A single fresh-process run measures lower (~55 M msgs/sec).** The
+first run in a process catches the CPU mid-boost; by run 3–5 the
+frequency has stabilized at the boosted state. The 65 M figure is
+the steady-state number; the ~55 M figure is what a reviewer sees if
+they run `cargo run --bin pipeline` once. Both are real — they
+measure different CPU states.
 
 **This is cache-warm throughput, not network throughput.** The 2.4 MB
 stream is L3-resident; the kernel UDP receive path is not measured
 here — see `udp_demo`.
-
-The 37.2 M outlier is firmware CPU throttling during that run.
 
 ---
 
@@ -151,7 +157,7 @@ The 37.2 M outlier is firmware CPU throttling during that run.
 `cargo-fuzz` + libFuzzer on `decode()`, arbitrary `&[u8]` input.
 
 | Metric | Value |
-|---|---|
+| --- | --- |
 | Duration | 61 s |
 | Inputs | 18.5 M |
 | Executions/sec | ~303 K |

@@ -20,12 +20,25 @@
 //!
 //! # Alignment requirement
 //!
-//! `AddOrderMsg` has alignment 8 (because of its `u64` field).
-//! Zero-copy decode via `ref_from_prefix` requires the source slice's
-//! pointer to be 8-byte aligned. Use `AlignedMsg` (below) for buffers
-//! you control. Slices into a `Vec<u8>` are 8-aligned because the
-//! allocator returns at least 16-byte-aligned pointers and 24 is a
-//! multiple of 8 — so `&stream[i*24..(i+1)*24]` is always aligned.
+//! `AddOrderMsg` has alignment 8 (because of its `u64` fields).
+//! `zerocopy::ref_from_prefix` requires the source pointer to be
+//! 8-byte aligned. **`Vec<u8>` does not guarantee this alignment at the
+//! API level** — the standard allocator commonly returns 8- or 16-byte
+//! aligned pointers, and 24 is a multiple of 8, so slices of a
+//! `Vec<u8>` are *usually* aligned. But this is an allocator property,
+//! not a language guarantee.
+//!
+//! To ensure alignment:
+//!
+//! - Use `AlignedMsg` (`#[repr(C, align(8))]`) for stack or struct
+//!   buffers.
+//! - UDP receive buffers must use `AlignedMsg::as_mut_slice()` — a
+//!   plain `[u8; 24]` on the stack has alignment 1.
+//!
+//! Unaligned input is **not** undefined behavior: `decode()` returns
+//! `DecodeError::Unaligned` and does not panic. Callers that cannot
+//! guarantee alignment must copy the bytes into an `AlignedMsg` before
+//! decoding.
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 

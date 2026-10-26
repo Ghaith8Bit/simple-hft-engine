@@ -131,4 +131,28 @@ mod tests {
             _ => panic!(),
         }
     }
+
+    #[test]
+    fn decode_unaligned_returns_error() {
+        #[repr(align(8))]
+        struct Align8([u8; 25]);
+
+        let mut buf = Align8([0u8; 25]);
+        buf.0[1..25].copy_from_slice(encode_add(1, 0, 100, 10).as_slice());
+
+        let unaligned = &buf.0[1..25];
+        debug_assert_eq!(unaligned.len(), 24);
+        debug_assert_ne!(
+            unaligned.as_ptr() as usize % 8,
+            0,
+            "test setup broken: slice should be unaligned"
+        );
+
+        let result = decode(unaligned);
+        assert!(
+            matches!(result, Err(DecodeError::Unaligned)),
+            "expected Unaligned, got {:?}",
+            result.map(|_| ())
+        );
+    }
 }

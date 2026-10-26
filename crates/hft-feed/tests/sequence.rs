@@ -79,3 +79,61 @@ fn multiple_gaps_accumulate_stats() {
     assert_eq!(stats.gaps, 2);
     assert_eq!(stats.total_lost, 1 + 3);
 }
+
+#[test]
+fn reordered_packet_does_not_cause_false_gap() {
+    // seq 5, then delayed seq 3, then seq 6.
+    // Seq 3 is out-of-order; seq 6 is Normal. No gap should be reported.
+    let mut t = SequenceTracker::new();
+    assert!(matches!(t.observe(5), SequenceEvent::First));
+    assert!(matches!(t.observe(3), SequenceEvent::OutOfOrder { .. }));
+    assert!(matches!(t.observe(6), SequenceEvent::Normal));
+
+    let s = t.stats();
+    assert_eq!(s.gaps, 0);
+    assert_eq!(s.total_lost, 0);
+    assert_eq!(s.out_of_order, 1);
+}
+
+#[test]
+fn duplicate_after_reorder_is_classified_against_forward_reference() {
+    // 5, 3 (out of order), 5 (duplicate of the forward reference).
+    let mut t = SequenceTracker::new();
+    t.observe(5);
+    assert!(matches!(t.observe(3), SequenceEvent::OutOfOrder { .. }));
+    assert!(matches!(t.observe(5), SequenceEvent::Duplicate(5)));
+
+    let s = t.stats();
+    assert_eq!(s.duplicates, 1);
+    assert_eq!(s.out_of_order, 1);
+    assert_eq!(s.gaps, 0);
+}
+
+#[test]
+fn gap_then_late_fill_is_out_of_order_not_extra_gap() {
+    // 5, 8 (gap, last_seq=8), then late 6 and 7.
+    // The late packets are out-of-order. Gap count stays 1.
+    let mut t = SequenceTracker::new();
+    t.observe(5);
+    assert!(matches!(t.observe(8), SequenceEvent::Gap(_)));
+    assert!(matches!(t.observe(6), SequenceEvent::OutOfOrder { .. }));
+    assert!(matches!(t.observe(7), SequenceEvent::OutOfOrder { .. }));
+
+    let s = t.stats();
+    assert_eq!(s.gaps, 1);
+    assert_eq!(s.total_lost, 2); // optimistic — 6 and 7 were counted lost
+    assert_eq!(s.out_of_order, 2);
+}
+
+#[test]
+fn u32_wraparound_is_forward() {
+    let mut t = SequenceTracker::new();
+    assert!(matches!(t.observe(u32::MAX - 1), SequenceEvent::First));
+    assert!(matches!(t.observe(u32::MAX), SequenceEvent::Normal));
+    assert!(matches!(t.observe(0), SequenceEvent::Normal));
+    assert!(matches!(t.observe(1), SequenceEvent::Normal));
+
+    let s = t.stats();
+    assert_eq!(s.gaps, 0);
+    assert_eq!(s.out_of_order, 0);
+}

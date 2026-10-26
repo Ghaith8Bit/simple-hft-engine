@@ -56,17 +56,24 @@ impl SequenceTracker {
 
     /// Observe the next sequence number. Returns what happened.
     pub fn observe(&mut self, seq: u32) -> SequenceEvent {
-        let event = match self.last_seq {
-            None => SequenceEvent::First,
+        match self.last_seq {
+            None => {
+                self.last_seq = Some(seq);
+                SequenceEvent::First
+            }
             Some(prev) if seq == prev => {
                 self.duplicates += 1;
                 SequenceEvent::Duplicate(seq)
             }
-            Some(prev) if seq == prev.wrapping_add(1) => SequenceEvent::Normal,
-            Some(prev) if seq > prev => {
-                let lost = seq - prev - 1;
+            Some(prev) if seq == prev.wrapping_add(1) => {
+                self.last_seq = Some(seq);
+                SequenceEvent::Normal
+            }
+            Some(prev) if seq.wrapping_sub(prev) < u32::MAX / 2 => {
+                let lost = seq.wrapping_sub(prev) - 1;
                 self.gaps += 1;
                 self.total_lost += lost as u64;
+                self.last_seq = Some(seq);
                 SequenceEvent::Gap(GapInfo {
                     expected: prev.wrapping_add(1),
                     actual: seq,
@@ -80,9 +87,7 @@ impl SequenceTracker {
                     actual: seq,
                 }
             }
-        };
-        self.last_seq = Some(seq);
-        event
+        }
     }
 
     pub fn stats(&self) -> SequenceStats {
