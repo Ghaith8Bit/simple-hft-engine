@@ -34,10 +34,13 @@ Invalid input fails decoding. Sequence tracking detects anomalies but does not r
 ## Message layout
 
 ```text
-0       1       2       4                       8
-| type  | side  | padding | sequence number     |
-| price (8 bytes)                         |
-| quantity (8 bytes)                      |
+Byte offset
+0       1       2               4               8               16              24
+|-------|-------|---------------|---------------|---------------|---------------|
+| type  | side  |    padding    | sequence (4B) |   price (8B)  | quantity (8B) |
+|-------|-------|---------------|---------------|---------------|---------------|
+0       1       2               4               8               16              24
+
 Total: 24 bytes
 ```
 
