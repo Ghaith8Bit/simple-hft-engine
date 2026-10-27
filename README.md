@@ -6,6 +6,10 @@ A Rust systems-engineering project exploring low-latency market-data processing 
 
 The project demonstrates implementation techniques and benchmarking methods. It is an educational prototype, **not a production trading system or a connection to a live exchange**.
 
+## Project Demo
+
+![HFT Engine Demo](assets/hft-launch.gif)
+
 ## What it does
 
 - Encodes and decodes a synthetic, fixed-size market-data message format.
