@@ -1,7 +1,0 @@
-flowchart TB
-    A["24-byte message buffer"] --> B{"Buffer aligned to 8 bytes?"}
-    B -->|"Yes"| C["zerocopy can borrow typed message reference"]
-    B -->|"No"| D["Decoder returns Unaligned"]
-    C --> E["Read header, sequence, price, quantity"]
-    F["AlignedMsg uses repr(C, align(8))"] --> A
-    G["Decoded message refers into original buffer"] -. "no separate decoded copy" .-> E

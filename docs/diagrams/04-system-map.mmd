@@ -1,9 +1,0 @@
-flowchart TB
-    CORE["hft-core<br/>Price · Quantity · Timestamp · Side"]
-    BOOK["hft-orderbook<br/>20 levels per side"]
-    FEED["hft-feed<br/>wire · decode · sequence · apply · replay"]
-    BENCH["hft-benchmarks<br/>RDTSC · stats · affinity"]
-    CORE --> BOOK
-    CORE --> FEED
-    BOOK --> FEED
-    BENCH -. "benchmark support" .-> BOOK

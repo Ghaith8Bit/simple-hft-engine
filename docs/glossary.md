@@ -1,23 +1,22 @@
-# Tiny glossary
+# Glossary
 
-| Term | Plain-English meaning |
-|---|---|
-| Market-data message | A small record describing an update in the synthetic feed format used here. |
-| Wire format | The agreed arrangement of bytes inside a message. |
-| Decode | Check a byte slice and interpret it as a supported message type. |
-| Zero-copy | The decoded message borrows the original input bytes instead of allocating a separate copy. |
-| Sequence number | A number used to compare the order in which messages arrive. |
-| Gap | A sequence jump that indicates one or more expected numbers were missed. |
-| Duplicate | A message with the same sequence number as the previous message. |
-| Out of order | A message whose sequence number is older than the tracked one. |
-| Order book | A structure holding buy-side bids and sell-side asks by price. |
-| Bid | A buy-side price level. |
-| Ask | A sell-side price level. |
-| Price level | One price and the total quantity tracked at that price. |
-| Spread | Best ask price minus best bid price. |
-| Fixed depth | The book keeps a bounded number of levels per side; here `DEPTH = 20`. |
-| RDTSC | A CPU timestamp-counter instruction used by the benchmark harness. |
-| p50 / p99 / p99.9 | Percentiles: the value at the 50th, 99th, or 99.9th percentile of sorted samples. |
-| Upper bound | A measurement that includes extra overhead and should not be presented as the exact operation cost. |
-| Fuzzing | Running a function against many generated inputs to find crashes or unexpected behavior. |
-| Strategy stub | A small demonstration check, not a complete trading strategy. |
+- **Alignment:** Memory address meets a type's alignment requirement.
+- **Best ask:** Lowest retained ask price.
+- **Best bid:** Highest retained bid price.
+- **Borrowed view:** A reference to existing data rather than a copied, owned value.
+- **Cache-warm:** Data likely resides in CPU cache after recent access.
+- **Criterion:** Rust benchmarking framework used for operation-level measurements.
+- **Fixed-depth book:** Order book with a bounded number of price levels per side; this one uses 20.
+- **HFT:** High-frequency trading. This repository is an educational prototype, not a profitable or production HFT system.
+- **Latency:** Time taken by a particular operation or path; microbenchmark latency is not necessarily end-to-end latency.
+- **Little-endian:** Integer representation with the least significant byte first.
+- **Market-data message:** Message describing an event such as an add or cancel in this synthetic format.
+- **Sequence number:** Counter used to reason about message order and identify apparent gaps, duplicates, or out-of-order arrivals.
+- **`no_std`:** Rust code built without the standard library.
+- **Price aggregation:** Combining quantities at the same price rather than tracking each order separately.
+- **RDTSC:** x86 instruction that reads a timestamp counter; tiny measurements require careful interpretation.
+- **Sequence gap:** Forward jump in observed sequence numbers suggesting missing values.
+- **TSC cycles:** Timestamp-counter units; this project's `Timestamp` is not wall-clock time.
+- **UDP:** User Datagram Protocol; it does not guarantee delivery, ordering, or retransmission.
+- **Wire format:** Byte layout of a message. This repository's format is synthetic.
+- **Zero-copy decoding:** Creating a borrowed typed view over validated bytes instead of copying fields into a new owned structure.
